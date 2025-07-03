@@ -21,12 +21,18 @@ class Transformer(nn.Module):
 
 
     def generate_mask(self, src, tgt):
-        src_mask = (src != 0).unsqueeze(1).unsqueeze(2).to(device)
-        tgt_mask = (tgt != 0).unsqueeze(1).unsqueeze(3).to(device)
-        seq_length = tgt.size(1)
+        # src and tgt are (seq_len, batch_size)
+        src_seq_len = src.size(0)
+        tgt_seq_len = tgt.size(0)
+
+        # src_mask: (batch_size, 1, 1, src_seq_len)
+        src_mask = (src != 0).transpose(0, 1).unsqueeze(1).unsqueeze(2).to(device)
+
+        # tgt_mask: (batch_size, 1, tgt_seq_len, tgt_seq_len)
+        tgt_padding_mask = (tgt != 0).transpose(0, 1).unsqueeze(1).unsqueeze(2).to(device)
         
-        nopeak_mask = (1 - torch.triu(torch.ones(1, seq_length, seq_length), diagonal=1)).bool().to(device)
-        tgt_mask = tgt_mask & nopeak_mask
+        nopeak_mask = (1 - torch.triu(torch.ones(1, tgt_seq_len, tgt_seq_len), diagonal=1)).bool().to(device)
+        tgt_mask = tgt_padding_mask & nopeak_mask
         return src_mask.to(device), tgt_mask.to(device)
         
 
@@ -50,56 +56,3 @@ class Transformer(nn.Module):
         linear_layer_output= self.fc(decoder_output)
         return linear_layer_output
     
-if __name__ == "__main__":
-    import torch.optim as optim
-
-
-    input_vocab_size = 512
-    tgt_vocab_size = 512
-    d_model = 512
-    num_heads = 8
-    num_layers = 6
-    d_ff = 2048
-    max_seq_length = 100
-    dropout = 0.1
-
-    transformer = Transformer(d_model, input_vocab_size, tgt_vocab_size).to(device)
-
-    # Generate random sample data
-    src_data = torch.randint(1, input_vocab_size, (64, max_seq_length)).to(device)
-    tgt_data = torch.randint(1, tgt_vocab_size, (64, max_seq_length)).to(device)
-
-    criterion = nn.CrossEntropyLoss(ignore_index=0)
-    optimizer = torch.optim.Adam(transformer.parameters(), lr=0.0001, betas=(0.9, 0.98), eps=1e-9)
-
-    transformer.train()
-
-    for epoch in range(20):
-        optimizer.zero_grad()
-        
-        tgt_input = tgt_data[:, :-1]
-        tgt_output = tgt_data[:, 1:]
-
-        output = transformer(src_data, tgt_input)  # [batch, seq_len-1, vocab_size]
-        
-        loss = criterion(output.contiguous().view(-1, tgt_vocab_size),
-                        tgt_output.contiguous().view(-1))
-
-        loss.backward()
-        optimizer.step()
-
-        print(f"Epoch: {epoch+1}, Loss: {loss.item():.4f}")
-
-
-    print('-'*50)
-    transformer.eval()
-
-   
-    val_src_data = torch.randint(1, input_vocab_size, (64, max_seq_length)).to(device)  
-    val_tgt_data = torch.randint(1, tgt_vocab_size, (64, max_seq_length)).to(device) 
-
-    with torch.no_grad():
-
-        val_output = transformer(val_src_data, val_tgt_data[:, :-1])
-        val_loss = criterion(val_output.contiguous().view(-1, tgt_vocab_size), val_tgt_data[:, 1:].contiguous().view(-1))
-        print(f"Validation Loss: {val_loss.item()}")
